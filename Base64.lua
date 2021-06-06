@@ -94,11 +94,61 @@ local function encode(source)
 		output[outputIndex + 3] = value4
 	end
 
-	-- Ensure length is multiple of 4
+	-- Finish off last chunk
 	if remainingCharacters > 0 then
-		for _ = 1, 3 - remainingCharacters do
-			table.insert(output, 61) -- =
+		local chunk = string.unpack(">H", source, (sourceLength - remainingCharacters) + 1)
+
+		local value1 = bit32.band(bit32.rshift(chunk, 10), 0b111111)
+		local value2 = bit32.band(bit32.rshift(chunk, 4), 0b111111)
+
+		if value1 <= 25 then -- A-Z
+			value1 += 65
+		elseif value1 <= 51 then -- a-z
+			value1 += 71 -- 97 - (25 + 1)
+		elseif value1 <= 61 then -- 0-9
+			value1 -= 4 -- 48 - (51 + 1)
+		elseif value1 == 62 then -- +
+			value1 = 43
+		elseif value1 == 63 then -- /
+			value1 = 47
 		end
+		
+		if value2 <= 25 then -- A-Z
+			value2 += 65
+		elseif value2 <= 51 then -- a-z
+			value2 += 71 -- 97 - (25 + 1)
+		elseif value2 <= 61 then -- 0-9
+			value2 -= 4 -- 48 - (51 + 1)
+		elseif value2 == 62 then -- +
+			value2 = 43
+		elseif value2 == 63 then -- /
+			value2 = 47
+		end
+
+		table.insert(output, value1)
+		table.insert(output, value2)
+
+		if remainingCharacters == 2 then
+			local value3 = bit32.band(bit32.rshift(chunk, -2), 0b111111)
+			
+			if value3 <= 25 then -- A-Z
+				value3 += 65
+			elseif value3 <= 51 then -- a-z
+				value3 += 71 -- 97 - (25 + 1)
+			elseif value3 <= 61 then -- 0-9
+				value3 -= 4 -- 48 - (51 + 1)
+			elseif value3 == 62 then -- +
+				value3 = 43
+			elseif value3 == 63 then -- /
+				value3 = 47
+			end
+
+			table.insert(output, value3)
+		else
+			table.insert(output, 61)
+		end
+
+		table.insert(output, 61)
 	end
 
 	return build(output)
