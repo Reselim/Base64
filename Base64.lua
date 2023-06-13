@@ -39,7 +39,7 @@ local function encode(input: string): string
 
 	local output = table.create(outputLength, 0) :: { number }
 
-	for chunkIndex = 0, (outputLength / 4) - 1 do
+	for chunkIndex = 0, (outputLength / 4) - (if remainder == 0 then 1 else 2) do
 		local inputIndex = chunkIndex * 3 + 1
 		local outputIndex = chunkIndex * 4 + 1
 
