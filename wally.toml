@@ -1,6 +1,6 @@
 [package]
 name = "reselim/base64"
-version = "2.0.2"
+version = "2.0.3"
 registry = "https://github.com/UpliftGames/wally-index"
 realm = "shared"
 include = ["default.project.json", "Base64.lua"]
