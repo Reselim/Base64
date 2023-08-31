@@ -1,3 +1,5 @@
+--!native
+
 local lookupValueToASCII = {} :: { [number]: number }
 local lookupASCIIToValue = {} :: { [number]: number }
 
