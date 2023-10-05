@@ -14,7 +14,7 @@ base64 = "reselim/base64@2.0.3"
 
 ### Manual
 
-[Download the latest release](https://github.com/Reselim/Base64/releases/download/latest/Base64.rbxm) from the releases page and drag it into Studio.
+[Download the latest release](https://github.com/Reselim/Base64/releases/latest) from the releases page and drag it into Studio.
 
 ## Usage
 
