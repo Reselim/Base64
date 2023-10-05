@@ -29,7 +29,7 @@ local decodedData = Base64.decode(encodedData) -- "Hello, world!"
 
 ## Benchmarks
 
-Benchmarks ran in Roblox Studio with a **Ryzen 5900X** and **32GB RAM @ 2133MHz**, as of **2023/08/31** and a payload of **10,000,000** characters
+Benchmarks ran in Roblox Studio with a payload of **10,000,000** characters running on a **Ryzen 5900X** and **32GB RAM @ 2133MHz**, as of **2023/08/31**
 
 #### Native mode OFF:
 - Encode: 524.15ms (19,078,215/s)
