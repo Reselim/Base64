@@ -1,7 +1,7 @@
 [package]
 name = "reselim/base64"
 description = "A pretty fast Luau Base64 encoder"
-version = "2.0.3"
+version = "3.0.0"
 registry = "https://github.com/UpliftGames/wally-index"
 realm = "shared"
 include = ["default.project.json", "Base64.lua"]

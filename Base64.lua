@@ -1,119 +1,161 @@
 --!native
 
-local lookupValueToASCII = {} :: { [number]: number }
-local lookupASCIIToValue = {} :: { [number]: number }
+local lookupValueToCharacter = buffer.create(64)
+local lookupCharacterToValue = buffer.create(256)
 
 local alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+local padding = string.byte("=")
 
-for index = 1, #alphabet do
+for index = 1, 64 do
 	local value = index - 1
-	local ascii = string.byte(alphabet, index)
-
-	lookupValueToASCII[value] = ascii
-	lookupASCIIToValue[ascii] = value
+	local character = string.byte(alphabet, index)
+	
+	buffer.writeu8(lookupValueToCharacter, value, character)
+	buffer.writeu8(lookupCharacterToValue, character, value)
 end
 
-lookupASCIIToValue[string.byte("=")] = 0
-
-local function buildStringFromCodes(values: { number }): string
-	local chunks = {} :: { string }
-
-	for index = 1, #values, 4096 do
-		table.insert(chunks, string.char(
-			unpack(values, index, math.min(index + 4096 - 1, #values))
-		))
+local function encode(input: buffer): buffer
+	local inputLength = buffer.len(input)
+	local inputChunks = math.ceil(inputLength / 3)
+	
+	local outputLength = inputChunks * 4
+	local output = buffer.create(outputLength)
+	
+	-- Since we use readu32 and chunks are 3 bytes large, we can't read the last chunk here
+	for chunkIndex = 1, inputChunks - 1 do
+		local inputIndex = (chunkIndex - 1) * 3
+		local outputIndex = (chunkIndex - 1) * 4
+		
+		local chunk = bit32.byteswap(buffer.readu32(input, inputIndex))
+		
+		-- 8 + 24 - (6 * index)
+		local value1 = bit32.rshift(chunk, 26)
+		local value2 = bit32.band(bit32.rshift(chunk, 20), 0b111111)
+		local value3 = bit32.band(bit32.rshift(chunk, 14), 0b111111)
+		local value4 = bit32.band(bit32.rshift(chunk, 8), 0b111111)
+		
+		buffer.writeu8(output, outputIndex, buffer.readu8(lookupValueToCharacter, value1))
+		buffer.writeu8(output, outputIndex + 1, buffer.readu8(lookupValueToCharacter, value2))
+		buffer.writeu8(output, outputIndex + 2, buffer.readu8(lookupValueToCharacter, value3))
+		buffer.writeu8(output, outputIndex + 3, buffer.readu8(lookupValueToCharacter, value4))
 	end
+	
+	local inputRemainder = inputLength % 3
+	
+	if inputRemainder == 1 then
+		local chunk = buffer.readu8(input, inputLength - 1)
+		
+		local value1 = bit32.rshift(chunk, 2)
+		local value2 = bit32.band(bit32.lshift(chunk, 4), 0b111111)
 
-	return table.concat(chunks, "")
-end
-
-local function encode(input: string): string
-	local inputLength = #input
-	local outputLength = math.ceil(inputLength / 3) * 4
-
-	local remainder = inputLength % 3
-
-	if remainder == 0 then
-		-- Since chunks are only 3 characters wide and we're parsing 4 characters, we need
-		-- to add an extra 0 on the end (which will be discarded anyway)
-		input ..= string.char(0)
-	end
-
-	local output = table.create(outputLength, 0) :: { number }
-
-	for chunkIndex = 0, (outputLength / 4) - (if remainder == 0 then 1 else 2) do
-		local inputIndex = chunkIndex * 3 + 1
-		local outputIndex = chunkIndex * 4 + 1
-
-		-- Parse this as a single 32-bit integer instead of splitting into multiple and combining after
-		local chunk = bit32.rshift(string.unpack(">J", input, inputIndex), 8)
-
-		output[outputIndex] = lookupValueToASCII[bit32.rshift(chunk, 18)]
-		output[outputIndex + 1] = lookupValueToASCII[bit32.band(bit32.rshift(chunk, 12), 0b111111)]
-		output[outputIndex + 2] = lookupValueToASCII[bit32.band(bit32.rshift(chunk, 6), 0b111111)]
-		output[outputIndex + 3] = lookupValueToASCII[bit32.band(chunk, 0b111111)]
-	end
-
-	if remainder == 1 then -- AA==
-		local chunk = string.byte(input, inputLength)
-
-		output[outputLength - 3] = lookupValueToASCII[bit32.rshift(chunk, 2)]
-		output[outputLength - 2] = lookupValueToASCII[bit32.band(bit32.lshift(chunk, 4), 0b111111)]
-		output[outputLength - 1] = 61
-		output[outputLength] = 61
-	elseif remainder == 2 then -- AAA=
-		local chunk = string.unpack(">H", input, inputLength - 1)
-
-		output[outputLength - 3] = lookupValueToASCII[bit32.rshift(chunk, 10)]
-		output[outputLength - 2] = lookupValueToASCII[bit32.band(bit32.rshift(chunk, 4), 0b111111)]
-		output[outputLength - 1] = lookupValueToASCII[bit32.band(bit32.lshift(chunk, 2), 0b111111)]
-		output[outputLength] = 61
-	end
-
-	return buildStringFromCodes(output)
-end
-
-local function decode(input: string): string
-	local inputLength = #input
-	local outputLength = math.ceil(inputLength / 4) * 3
-
-	local padding = 0
-	if string.byte(input, inputLength - 1) == 61 then
-		padding = 2
-	elseif string.byte(input, inputLength) == 61 then
-		padding = 1
-	end
-
-	local output = table.create(outputLength - padding, 0)
-
-	for chunkIndex = 0, (outputLength / 3) - 1 do
-		local inputIndex = chunkIndex * 4 + 1
-		local outputIndex = chunkIndex * 3 + 1
-
-		local value1, value2, value3, value4 = string.byte(input, inputIndex, inputIndex + 3)
-
-		-- Combine all variables into one 24-bit variable to be split up
-		local compound = bit32.bor(
-			bit32.lshift(lookupASCIIToValue[value1], 18),
-			bit32.lshift(lookupASCIIToValue[value2], 12),
-			bit32.lshift(lookupASCIIToValue[value3], 6),
-			lookupASCIIToValue[value4]
+		buffer.writeu8(output, outputLength - 4, buffer.readu8(lookupValueToCharacter, value1))
+		buffer.writeu8(output, outputLength - 3, buffer.readu8(lookupValueToCharacter, value2))
+		buffer.writeu8(output, outputLength - 2, padding)
+		buffer.writeu8(output, outputLength - 1, padding)
+	elseif inputRemainder == 2 then
+		local chunk = bit32.bor(
+			bit32.lshift(buffer.readu8(input, inputLength - 2), 8),
+			buffer.readu8(input, inputLength - 1)
 		)
 
-		output[outputIndex] = bit32.rshift(compound, 16)
-		output[outputIndex + 1] = bit32.band(bit32.rshift(compound, 8), 0b11111111)
-		output[outputIndex + 2] = bit32.band(compound, 0b11111111)
+		local value1 = bit32.rshift(chunk, 10)
+		local value2 = bit32.band(bit32.rshift(chunk, 4), 0b111111)
+		local value3 = bit32.band(bit32.lshift(chunk, 2), 0b111111)
+		
+		buffer.writeu8(output, outputLength - 4, buffer.readu8(lookupValueToCharacter, value1))
+		buffer.writeu8(output, outputLength - 3, buffer.readu8(lookupValueToCharacter, value2))
+		buffer.writeu8(output, outputLength - 2, buffer.readu8(lookupValueToCharacter, value3))
+		buffer.writeu8(output, outputLength - 1, padding)
+	elseif inputRemainder == 0 and inputLength ~= 0 then
+		local chunk = bit32.bor(
+			bit32.lshift(buffer.readu8(input, inputLength - 3), 16),
+			bit32.lshift(buffer.readu8(input, inputLength - 2), 8),
+			buffer.readu8(input, inputLength - 1)
+		)
+
+		local value1 = bit32.rshift(chunk, 18)
+		local value2 = bit32.band(bit32.rshift(chunk, 12), 0b111111)
+		local value3 = bit32.band(bit32.rshift(chunk, 6), 0b111111)
+		local value4 = bit32.band(chunk, 0b111111)
+
+		buffer.writeu8(output, outputLength - 4, buffer.readu8(lookupValueToCharacter, value1))
+		buffer.writeu8(output, outputLength - 3, buffer.readu8(lookupValueToCharacter, value2))
+		buffer.writeu8(output, outputLength - 2, buffer.readu8(lookupValueToCharacter, value3))
+		buffer.writeu8(output, outputLength - 1, buffer.readu8(lookupValueToCharacter, value4))
 	end
+	
+	return output
+end
 
-	if padding >= 1 then
-		output[outputLength] = nil
+local function decode(input: buffer): buffer
+	local inputLength = buffer.len(input)
+	local inputChunks = math.ceil(inputLength / 4)
+	
+	-- TODO: Support input without padding
+	local inputPadding = 0
+	if buffer.readu8(input, inputLength - 1) == padding then inputPadding += 1 end
+	if buffer.readu8(input, inputLength - 2) == padding then inputPadding += 1 end
 
-		if padding >= 2 then
-			output[outputLength - 1] = nil
+	local outputLength = inputChunks * 3 - inputPadding
+	local output = buffer.create(outputLength)
+	
+	for chunkIndex = 1, inputChunks - 1 do
+		local inputIndex = (chunkIndex - 1) * 4
+		local outputIndex = (chunkIndex - 1) * 3
+		
+		local value1 = buffer.readu8(lookupCharacterToValue, buffer.readu8(input, inputIndex))
+		local value2 = buffer.readu8(lookupCharacterToValue, buffer.readu8(input, inputIndex + 1))
+		local value3 = buffer.readu8(lookupCharacterToValue, buffer.readu8(input, inputIndex + 2))
+		local value4 = buffer.readu8(lookupCharacterToValue, buffer.readu8(input, inputIndex + 3))
+		
+		local chunk = bit32.bor(
+			bit32.lshift(value1, 18),
+			bit32.lshift(value2, 12),
+			bit32.lshift(value3, 6),
+			value4
+		)
+		
+		local character1 = bit32.rshift(chunk, 16)
+		local character2 = bit32.band(bit32.rshift(chunk, 8), 0b11111111)
+		local character3 = bit32.band(chunk, 0b11111111)
+		
+		buffer.writeu8(output, outputIndex, character1)
+		buffer.writeu8(output, outputIndex + 1, character2)
+		buffer.writeu8(output, outputIndex + 2, character3)
+	end
+	
+	
+	local lastInputIndex = (inputChunks - 1) * 4
+	local lastOutputIndex = (inputChunks - 1) * 3
+	
+	local lastValue1 = buffer.readu8(lookupCharacterToValue, buffer.readu8(input, lastInputIndex))
+	local lastValue2 = buffer.readu8(lookupCharacterToValue, buffer.readu8(input, lastInputIndex + 1))
+	local lastValue3 = buffer.readu8(lookupCharacterToValue, buffer.readu8(input, lastInputIndex + 2))
+	local lastValue4 = buffer.readu8(lookupCharacterToValue, buffer.readu8(input, lastInputIndex + 3))
+
+	local lastChunk = bit32.bor(
+		bit32.lshift(lastValue1, 18),
+		bit32.lshift(lastValue2, 12),
+		bit32.lshift(lastValue3, 6),
+		lastValue4
+	)
+	
+	if inputPadding <= 2 then
+		local lastCharacter1 = bit32.rshift(lastChunk, 16)
+		buffer.writeu8(output, lastOutputIndex, lastCharacter1)
+		
+		if inputPadding <= 1 then
+			local lastCharacter2 = bit32.band(bit32.rshift(lastChunk, 8), 0b11111111)
+			buffer.writeu8(output, lastOutputIndex + 1, lastCharacter2)
+			
+			if inputPadding == 0 then
+				local lastCharacter3 = bit32.band(lastChunk, 0b11111111)
+				buffer.writeu8(output, lastOutputIndex + 2, lastCharacter3)
+			end
 		end
 	end
-
-	return buildStringFromCodes(output)
+	
+	return output
 end
 
 return {
