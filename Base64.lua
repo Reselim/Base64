@@ -124,7 +124,6 @@ local function decode(input: buffer): buffer
 		buffer.writeu8(output, outputIndex + 2, character3)
 	end
 	
-	
 	local lastInputIndex = (inputChunks - 1) * 4
 	local lastOutputIndex = (inputChunks - 1) * 3
 	
