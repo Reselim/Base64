@@ -1,4 +1,5 @@
 --!native
+--!optimize 2
 
 local lookupValueToCharacter = buffer.create(64)
 local lookupCharacterToValue = buffer.create(256)
@@ -93,8 +94,10 @@ local function decode(input: buffer): buffer
 	
 	-- TODO: Support input without padding
 	local inputPadding = 0
-	if buffer.readu8(input, inputLength - 1) == padding then inputPadding += 1 end
-	if buffer.readu8(input, inputLength - 2) == padding then inputPadding += 1 end
+	if inputLength ~= 0 then
+		if buffer.readu8(input, inputLength - 1) == padding then inputPadding += 1 end
+		if buffer.readu8(input, inputLength - 2) == padding then inputPadding += 1 end
+	end
 
 	local outputLength = inputChunks * 3 - inputPadding
 	local output = buffer.create(outputLength)
